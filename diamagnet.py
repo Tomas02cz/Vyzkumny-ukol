@@ -18,11 +18,11 @@ from scipy.integrate import cumulative_trapezoid
 def plot_raw_data(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data, save):
     # graph of raw data from vacuum shot
     plt.figure(figsize=(10, 6))
-    plt.plot(raw_data_vacuum['t'], raw_data_vacuum['diamagnet1'], label='inner diamagnetic loop')
-    plt.plot(raw_data_vacuum['t'], raw_data_vacuum['diamagnet2'], label='outer diamagnetic loop')
+    plt.plot(raw_data_vacuum['t']*1e3, raw_data_vacuum['diamagnet1'], label='inner diamagnetic loop')
+    plt.plot(raw_data_vacuum['t']*1e3, raw_data_vacuum['diamagnet2'], label='outer diamagnetic loop')
     
-    plt.xlabel('time [ms]')
-    plt.ylabel('voltage [V]')
+    plt.xlabel('time (ms)')
+    plt.ylabel('voltage (V)')
     plt.title(f'Raw signal from diamagnetic loops during vacuum shot #{shot_no_vacuum}')
     plt.legend()
     plt.grid(True)
@@ -31,14 +31,14 @@ def plot_raw_data(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data, save):
     
     # graph of raw data from plasma discharge
     plt.figure(figsize=(10, 6))
-    plt.plot(raw_data['t'], raw_data['diamagnet1'], label='inner diamagnetic loop')
-    plt.plot(raw_data['t'], raw_data['diamagnet2'], label='outer diamagnetic loop')
-    
-    plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1) # show duration of plasma
+    plt.plot(raw_data['t']*1e3, raw_data['diamagnet1'], label='inner diamagnetic loop')
+    plt.plot(raw_data['t']*1e3, raw_data['diamagnet2'], label='outer diamagnetic loop')
+    # show duration of plasma
+    plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
     plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
     
-    plt.xlabel('time [ms]')
-    plt.ylabel('voltage [V]')
+    plt.xlabel('time (ms)')
+    plt.ylabel('voltage (V)')
     plt.title(f'Raw signal from diamagnetic loops during plasma discharge #{shot_no}')
     plt.legend()
     plt.grid(True)
@@ -48,10 +48,262 @@ def plot_raw_data(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data, save):
     plt.show()
 
 
+def calibrate_diamagnet(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data, save): #TODO kalibrace 2 je asi zbytečná
+    # calibration made according to vacuum shot signal!
+
+    # calibration 1: U1 = m * U2
+    mask = (raw_data['t'] >= t_start) & (raw_data['t'] <= t_end)
+    x = raw_data_vacuum['diamagnet2'][mask].values # columns as numpy array
+    y = raw_data_vacuum['diamagnet1'][mask].values
+    m = np.dot(x, y) / np.dot(x, x) # computing optimal m
+    print(f'kalibration number m: {m}')
+
+    # computin difference raw signal
+    raw_data_vacuum['difference'] = raw_data_vacuum['diamagnet1'] - m * raw_data_vacuum['diamagnet2']
+    raw_data['difference'] = raw_data['diamagnet1'] - m * raw_data['diamagnet2']
 
 
+    # calibration 2: U1 = k * U2 + q ; U1 = raw_data_vacuum['diamagnet1'], U2 = raw_data_vacuum['diamagnet2']
+    # in scipy
+    slope, intercept, r_value, p_value, std_err = stats.linregress(raw_data_vacuum['diamagnet2'], raw_data_vacuum['diamagnet1'])
+    # in numpy
+    #k, q = np.polyfit(raw_data_vacuum['diamagnet2'], raw_data_vacuum['diamagnet1'], deg=1)
+
+    # calibrated data
+    raw_data_vacuum_calibrated = raw_data_vacuum.copy()
+    raw_data_calibrated = raw_data.copy()
+    raw_data_vacuum_calibrated['diamagnet2'] = slope * raw_data_vacuum['diamagnet2'] + intercept
+    raw_data_calibrated['diamagnet2'] = slope * raw_data['diamagnet2'] + intercept
+    #raw_data_vacuum['diamagnet2_calibrated_numpy'] = k * raw_data_vacuum['diamagnet2'] + q
 
 
+    # plot calibrated and raw data
+    plt.plot(raw_data_vacuum['t']*1e3, raw_data_vacuum['diamagnet1'], label='vacuum shot (reference)')
+    plt.plot(raw_data_vacuum['t']*1e3, raw_data_vacuum['difference']+raw_data_vacuum['diamagnet1'], label='vacuum shot (calibration: U1 = {m:.3e} * U2)')
+    plt.plot(raw_data_vacuum_calibrated['t']*1e3, raw_data_vacuum_calibrated['diamagnet2'], label='vacuum shot (calibration: U1 = {slope:.3e} * U2 + {intercept:.3e})', linestyle='--')
+    plt.plot(raw_data['t']*1e3, raw_data['diamagnet1'], label='plasma discharge (reference)')
+    plt.plot(raw_data['t']*1e3, raw_data['difference']+raw_data['diamagnet1'], label='plasma discharge (calibration: U1 = {m:.3e} * U2)')
+    plt.plot(raw_data_calibrated['t']*1e3, raw_data_calibrated['diamagnet2'], label='plasma discharge (calibration: U1 = {slope:.3e} * U2 + {intercept:.3e})', linestyle='--')
+    plt.xlabel('time (ms)')
+    plt.ylabel('induced voltage (V)')
+    plt.legend()
+    plt.title('Calibration of Diamagnet Diagnostics')
+    plt.grid(True)
+    plt.show()
+    if save == 1:
+        plt.savefig(f'results/{shot_no}_DiamagneticLoop_CalibratedSignal.png')
+
+    return raw_data_vacuum, raw_data, raw_data_vacuum_calibrated, raw_data_calibrated, m 
+
+
+def plot_difference_signal(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data, save):
+    # difference signal for vacuum shot
+    plt.figure(figsize=(10, 6))
+    plt.plot(raw_data_vacuum['t']*1e3, raw_data_vacuum['diamagnet1'], label='inner diamagnetic loop')
+    plt.plot(raw_data_vacuum['t']*1e3, raw_data_vacuum['diamagnet2'], label='outer diamagnetic loop')
+    plt.plot(raw_data_vacuum['t']*1e3, raw_data_vacuum['difference'], label='difference between loops')
+
+    plt.xlabel('time (ms)')
+    plt.ylabel('voltage (V)')
+    plt.title(f'Signal from diamagnetic loops during vacuum shot #{shot_no_vacuum}')
+    plt.legend()
+    plt.grid(True)
+    if save == 1:
+        plt.savefig(f'results/{shot_no_vacuum}_DiamagneticLoop_DifferenceSignal_VacuumShot.png')
+    
+    # plot difference signal for plasma discharge
+    plt.figure(figsize=(10, 6))
+    plt.plot(raw_data['t']*1e3, raw_data['diamagnet1'], label='inner diamagnetic loop')
+    plt.plot(raw_data['t']*1e3, raw_data['diamagnet2'], label='outer diamagnetic loop')
+    plt.plot(raw_data['t']*1e3, raw_data['difference'], label='difference between loops')
+    # show duration of plasma
+    plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
+    plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
+    
+    plt.xlabel('time (ms)')
+    plt.ylabel('voltage (V)')
+    plt.title(f'Signal from diamagnetic loops during plasma discharge #{shot_no}')
+    plt.legend()
+    plt.grid(True)
+    if save == 1:
+        plt.savefig(f'results/{shot_no}_DiamagneticLoop_DifferenceSignal_PlasmaShot.png')
+    
+    plt.show()
+
+
+def integrate_raw_data(raw_data_vacuum, raw_data):
+    # integration of raw data
+    integral_U1_vacuum = cumulative_trapezoid(raw_data_vacuum['diamagnet1'], raw_data_vacuum['t'], initial=0)
+    integral_U2_vacuum = cumulative_trapezoid(raw_data_vacuum['diamagnet2'], raw_data_vacuum['t'], initial=0)
+
+    integral_U1 = cumulative_trapezoid(raw_data['diamagnet1'], raw_data['t'], initial=0)
+    integral_U2 = cumulative_trapezoid(raw_data['diamagnet2'], raw_data['t'], initial=0)
+
+    integral_difference_vacuum = cumulative_trapezoid(raw_data_vacuum['difference'], raw_data_vacuum['t'], initial=0) # this should be constant at 0
+    integral_difference = cumulative_trapezoid(raw_data['difference'], raw_data['t'], initial=0)
+
+    # new DataFrame of integrated data
+    integrated_data_vacuum = pd.DataFrame({'t': raw_data_vacuum['t'], 'diamagnet1': integral_U1_vacuum, 'diamagnet2': integral_U2_vacuum, 'difference': integral_difference_vacuum})
+    integrated_data = pd.DataFrame({'t': raw_data['t'], 'diamagnet1': integral_U1, 'diamagnet2': integral_U2, 'difference': integral_difference})
+    
+    return integrated_data_vacuum, integrated_data
+
+
+def plot_integrated_data(shot_no_vacuum, shot_no, integrated_data, integrated_data_vacuum, calibration_const, save):
+    # plot integrated data
+    plt.figure(figsize=(10, 6))
+    plt.plot(integrated_data_vacuum['t']*1e3, integrated_data_vacuum['diamagnet1'], label='inner diamagnetic loop')
+    plt.plot(integrated_data_vacuum['t']*1e3, integrated_data_vacuum['diamagnet2'], label='outer diamagnetic loop')
+    plt.plot(integrated_data_vacuum['t']*1e3, integrated_data_vacuum['difference'], label='difference') # this should be constant at 0
+
+    plt.xlabel('time (ms)')
+    plt.ylabel('flux (Wb)')
+    plt.title(f'Integrated signal from diamagnetic loops during vacuum shot #{shot_no_vacuum}')
+    plt.legend()
+    plt.grid(True)
+    if save == 1:
+        plt.savefig(f'results/{shot_no_vacuum}_DiamagneticLoop_IntegratedSignal_VacuumShot.png')
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(integrated_data['t']*1e3, integrated_data['diamagnet1'], label='inner diamagnetic loop')
+    plt.plot(integrated_data['t']*1e3, integrated_data['diamagnet2'], label='outer diamagnetic loop')
+    plt.plot(integrated_data['t']*1e3, integrated_data['difference'], label='difference')
+
+    plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
+    plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
+
+    plt.xlabel('time (ms)')
+    plt.ylabel('flux (Wb)')
+    plt.title(f'Integrated signal from diamagnetic loops during plasma discharge #{shot_no}')
+    plt.legend()
+    plt.grid(True)
+    if save == 1:
+        plt.savefig(f'results/{shot_no}_DiamagneticLoop_IntegratedSignal_PlasmaShot.png')
+
+
+    # plot only during plasma discharge
+    mask = (raw_data['t'] >= t_start) & (raw_data['t'] <= t_end)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(integrated_data_vacuum['t'][mask]*1e3, integrated_data_vacuum['diamagnet1'][mask], label='inner diamagnetic loop')
+    plt.plot(integrated_data_vacuum['t'][mask]*1e3, integrated_data_vacuum['diamagnet2'][mask], label='outer diamagnetic loop')
+    plt.plot(integrated_data_vacuum['t'][mask]*1e3, integrated_data_vacuum['difference'][mask], label='difference')
+    plt.plot(integrated_data_vacuum['t'][mask]*1e3, calibration_const * integrated_data_vacuum['diamagnet2'][mask], label='calibrated outer diamagnetic loop')
+
+    plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
+    plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
+
+    plt.xlabel('time (ms)')
+    plt.ylabel('flux (Wb)')
+    plt.title(f'Integrated signal from diamagnetic loops during vacuum shot #{shot_no}')
+    plt.legend()
+    plt.grid(True)
+    if save == 1:
+        plt.savefig(f'results/{shot_no_vacuum}_DiamagneticLoop_IntegratedSignalZoomed_VacuumShot.png')
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(integrated_data['t'][mask]*1e3, integrated_data['diamagnet1'][mask], label='inner diamagnetic loop')
+    plt.plot(integrated_data['t'][mask]*1e3, integrated_data['diamagnet2'][mask], label='outer diamagnetic loop')
+    plt.plot(integrated_data['t'][mask]*1e3, integrated_data['difference'][mask], label='difference')
+    plt.plot(integrated_data['t'][mask]*1e3, calibration_const * integrated_data['diamagnet2'][mask], label='calibrated outer diamagnetic loop')
+
+    plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
+    plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
+
+    plt.xlabel('time (ms)')
+    plt.ylabel('flux (Wb)')
+    plt.title(f'Integrated signal from diamagnetic loops only during plasma discharge #{shot_no}')
+    plt.legend()
+    plt.grid(True)
+    if save == 1:
+        plt.savefig(f'results/{shot_no}_DiamagneticLoop_IntegratedSignalZoomed_PlasmaShot.png')
+
+    # calibrated
+    mask = (raw_data['t'] >= t_start) & (raw_data['t'] <= t_end)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(integrated_data['t'][mask]*1e3, integrated_data['diamagnet1'][mask], label='inner diamagnetic loop')
+    plt.plot(integrated_data['t'][mask]*1e3, m * integrated_data['diamagnet2'][mask], label='outer diamagnetic loop')
+    plt.plot(integrated_data['t'][mask]*1e3, integrated_data['difference'][mask], label='difference')
+
+    plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
+    plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
+
+    plt.xlabel('time (ms)')
+    plt.ylabel('flux (Wb)')
+    plt.title(f'Integrated and calibrated signal from diamagnetic loops only during plasma discharge #{shot_no}')
+    plt.legend()
+    plt.grid(True)
+    if save == 1:
+        plt.savefig(f'results/{shot_no}_DiamagneticLoop_IntegratedCalibratedSignal_PlasmaShot.png')
+
+    plt.show()
+
+
+def compute_magnetic_flux(integrated_data_vacuum, integrated_data, calibration_const, A_1, A_2):
+    # compute total magnetic flux
+    magnetic_flux = pd.DataFrame({'t': integrated_data['t'], 'uncorrected total flux difference': - 1 / m / (A_2 / A_1 - 1) * integrated_data['difference'], 'vacuum flux difference': - integrated_data_vacuum['difference'], 'total flux difference': - 1 / m / (A_2 / A_1 - 1) * integrated_data['difference'] + integrated_data_vacuum['difference']})
+    return magnetic_flux
+
+
+def plot_magnetic_flux_difference(shot_no, magnetic_flux, save):
+    # graph of total magnetic flux difference
+    mask = (magnetic_flux['t'] >= t_start) & (magnetic_flux['t'] <= t_end)
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(magnetic_flux['t'][mask]*1e3, magnetic_flux['uncorrected total flux difference'][mask], label='total toroidal magnetic flux')
+    plt.plot(magnetic_flux['t'][mask]*1e3, magnetic_flux['total flux difference'][mask], label='corrected total toroidal magnetic flux')
+    plt.plot(magnetic_flux['t'][mask]*1e3, magnetic_flux['vacuum flux difference'][mask], label='vacuum magnetic flux difference')
+
+    plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
+    plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
+
+    plt.xlabel('time (ms)')
+    plt.ylabel('toroidal magnetic flux (Wb)')
+    plt.title(f'Toroidal magnetic flux during plasma discharge #{shot_no}')
+    plt.legend()
+    plt.grid(True)
+    if save == 1:
+        plt.savefig(f'results/{shot_no}_DiamagneticLoop_MagneticFluxDifference_PlasmaShot.png')
+
+    plt.show()
+
+
+def compute_magnetic_flux_effects(magnetic_flux, I_all, Bt, mu_0):
+    # compute paramagnetic effect
+    I_p = pd.DataFrame({'t': I_all['t'], 'Ip': I_all['rogowski2']}) # TODO implement I_p computation from inner Rogowski coil
+
+    interpolated_Bt = np.interp(magnetic_flux['t'], Bt['t'], Bt['Bt']) # interpolate Bt data to match sampling time of diamagnetic loops 
+    B_0 = Bt.copy()
+    B_0['Bt'] = interpolated_Bt # TODO B_0 should be on axis (Is it right now?)
+
+    magnetic_flux['paramagnetic flux'] = (mu_0 * I_p['Ip'])**2 / (8 * np.pi * B_0['Bt'])
+    
+    # compute diamagnetic flux
+    magnetic_flux['diamagnetic flux'] = magnetic_flux['total flux difference'] - magnetic_flux['paramagnetic flux']
+
+    return magnetic_flux
+
+
+def plot_magnetic_flux_effects(shot_no, magnetic_flux, save):
+    # plot total toroidal magnetic flux, paramagnetic and diamagnetic toroidal magnetic flux
+    plt.figure(figsize=(10, 6))
+    plt.plot(magnetic_flux['t']*1e3, magnetic_flux['total flux difference'], label='total toroidal magnetic flux')
+    plt.plot(magnetic_flux['t']*1e3, magnetic_flux['paramagnetic flux'], label='paramagnetic effect contribution')
+    plt.plot(magnetic_flux['t']*1e3, magnetic_flux['diamagnetic flux'], label='diamagnetic effect contribution')
+
+    plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
+    plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
+
+    plt.xlabel('time (ms)')
+    plt.ylabel('toroidal magnetic flux (Wb)')
+    plt.title(f'Change in toroidal magnetic flux during plasma discharge #{shot_no}')
+    plt.legend()
+    plt.grid(True)
+    if save == 1:
+        plt.savefig(f'results/{shot_no}_DiamagneticLoop_MagneticFluxEffects_PlasmaShot.png')
+
+    plt.show()
 
 # shot parameters
 # shot_no_vacuum = 47769
@@ -81,279 +333,34 @@ raw_data = get_diamagnet_data(shot_no)
 plot_raw_data(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data, save=0)
 
 # plot raw data
-#plot_raw_data(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data)
-# graph of raw data from vacuum shot
-plt.figure(figsize=(10, 6))
-plt.plot(raw_data_vacuum['t'], raw_data_vacuum['diamagnet1'], label='inner diamagnetic loop')
-plt.plot(raw_data_vacuum['t'], raw_data_vacuum['diamagnet2'], label='outer diamagnetic loop')
+plot_raw_data(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data, save=0)
 
-plt.xlabel('time [ms]')
-plt.ylabel('voltage [V]')
-plt.title(f'Raw signal from diamagnetic loops during vacuum shot #{shot_no_vacuum}')
-plt.legend()
-plt.grid(True)
-plt.savefig(f'results/{shot_no_vacuum}_DiamagneticLoop_RawSignal_VacuumShot.png')
+# calibration of diamagnetic loops (adds difference signal)
+raw_data_vacuum, raw_data, raw_data_vacuum_calibrated, raw_data_calibrated, m = calibrate_diamagnet(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data, save=0)
 
-# graph of raw data from plasma discharge
-plt.figure(figsize=(10, 6))
-plt.plot(raw_data['t'], raw_data['diamagnet1'], label='inner diamagnetic loop')
-plt.plot(raw_data['t'], raw_data['diamagnet2'], label='outer diamagnetic loop')
+# plot difference signal
+plot_difference_signal(shot_no_vacuum, shot_no, raw_data_vacuum, raw_data, save=0)
 
-plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1) # show duration of plasma
-plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
+# integrate raw data
+integrated_data_vacuum, integrated_data = integrate_raw_data(raw_data_vacuum, raw_data)
 
-plt.xlabel('time [ms]')
-plt.ylabel('voltage [V]')
-plt.title(f'Raw signal from diamagnetic loops during plasma discharge #{shot_no}')
-plt.legend()
-plt.grid(True)
-plt.savefig(f'results/{shot_no}_DiamagneticLoop_RawSignal_PlasmaShot.png')
-
-plt.show()
-
-
-
-
-
-
-# kalibration of diamagnetic loops
-
-# calibration: U1 = m * U2
-mask = (raw_data['t'] >= t_start) & (raw_data['t'] <= t_end)
-x = raw_data_vacuum['diamagnet2'][mask].values # columns as numpy array
-y = raw_data_vacuum['diamagnet1'][mask].values
-m = np.dot(x, y) / np.dot(x, x) # computing optimal m
-print(f"kalibration number m: {m}")
-# computin difference raw signal
-raw_data_vacuum['difference'] = raw_data_vacuum['diamagnet1'] - m * raw_data_vacuum['diamagnet2']
-raw_data['difference'] = raw_data['diamagnet1'] - m * raw_data['diamagnet2']
-
-
-
-# calibration: U1 = k * U2 + q ; U1 = raw_data_vacuum['diamagnet1'], U2 = raw_data_vacuum['diamagnet2']
-# in scipy
-slope, intercept, r_value, p_value, std_err = stats.linregress(raw_data_vacuum['diamagnet2'], raw_data_vacuum['diamagnet1'])
-
-# in numpy
-#k, q = np.polyfit(raw_data_vacuum['diamagnet2'], raw_data_vacuum['diamagnet1'], deg=1)
-
-# calibrated data
-raw_data_vacuum_calibrated = raw_data_vacuum.copy()
-raw_data_calibrated = raw_data.copy()
-raw_data_vacuum_calibrated['diamagnet2'] = slope * raw_data_vacuum['diamagnet2'] + intercept
-raw_data_calibrated['diamagnet2'] = slope * raw_data['diamagnet2'] + intercept
-#raw_data_vacuum['diamagnet2_calibrated_numpy'] = k * raw_data_vacuum['diamagnet2'] + q
-
-
-plt.plot(raw_data_vacuum['t'], raw_data_vacuum['diamagnet1'], label='vacuum shot (reference)')
-plt.plot(raw_data_vacuum_calibrated['t'], raw_data_vacuum_calibrated['diamagnet2'], label='vacuum shot (calibrated)', linestyle='--')
-plt.plot(raw_data['t'], raw_data['diamagnet1'], label='plasma discharge (reference)')
-plt.plot(raw_data_calibrated['t'], raw_data_calibrated['diamagnet2'], label='plasma discharge (calibrated)', linestyle='--')
-plt.xlabel('Time [s]')
-plt.ylabel('Induced voltage [V]')
-plt.legend()
-plt.title('Calibration of Diamagnet Diagnostics')
-plt.grid(True)
-plt.show()
-
-
-
-
-
-
-# plot difference signal for vacuum shot
-plt.figure(figsize=(10, 6))
-plt.plot(raw_data_vacuum['t'], raw_data_vacuum['diamagnet1'], label='inner diamagnetic loop')
-plt.plot(raw_data_vacuum['t'], raw_data_vacuum['diamagnet2'], label='outer diamagnetic loop')
-plt.plot(raw_data_vacuum['t'], raw_data_vacuum['difference'], label='difference between loops')
-
-plt.xlabel('time [ms]')
-plt.ylabel('voltage [V]')
-plt.title(f'Raw signal from diamagnetic loops during vacuum shot #{shot_no_vacuum}')
-plt.legend()
-plt.grid(True)
-
-# plot difference signal for plasma discharge
-plt.figure(figsize=(10, 6))
-plt.plot(raw_data['t'], raw_data['diamagnet1'], label='inner diamagnetic loop')
-plt.plot(raw_data['t'], raw_data['diamagnet2'], label='outer diamagnetic loop')
-plt.plot(raw_data['t'], raw_data['difference'], label='difference between loops')
-
-plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
-plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
-
-plt.xlabel('time [ms]')
-plt.ylabel('voltage [V]')
-plt.title(f'Raw signal from diamagnetic loops during plasma discharge #{shot_no}')
-plt.legend()
-plt.grid(True)
-
-
-
-
-
-# integration of raw data
-integral_U1_vacuum = cumulative_trapezoid(raw_data_vacuum['diamagnet1'], raw_data_vacuum['t'], initial=0)
-integral_U2_vacuum = cumulative_trapezoid(raw_data_vacuum['diamagnet2'], raw_data_vacuum['t'], initial=0)
-
-integral_U1 = cumulative_trapezoid(raw_data['diamagnet1'], raw_data['t'], initial=0)
-integral_U2 = cumulative_trapezoid(raw_data['diamagnet2'], raw_data['t'], initial=0)
-
-integral_difference_vacuum = cumulative_trapezoid(raw_data_vacuum['difference'], raw_data_vacuum['t'], initial=0) # this should be constant at 0
-integral_difference = cumulative_trapezoid(raw_data['difference'], raw_data['t'], initial=0)
-
-# new DataFrame of integrated data
-integrated_data_vacuum = pd.DataFrame({'t': raw_data_vacuum['t'], 'diamagnet1': integral_U1_vacuum, 'diamagnet2': integral_U2_vacuum, 'difference': integral_difference_vacuum})
-integrated_data = pd.DataFrame({'t': raw_data['t'], 'diamagnet1': integral_U1, 'diamagnet2': integral_U2, 'difference': integral_difference})
-
-
-
-
-#def plot_integrated_data(integrated_data, integrated_data_vacuum, calibration_const):
-# graph of integrated data
-plt.figure(figsize=(10, 6))
-plt.plot(integrated_data_vacuum['t'], integrated_data_vacuum['diamagnet1'], label='inner diamagnetic loop')
-plt.plot(integrated_data_vacuum['t'], integrated_data_vacuum['diamagnet2'], label='outer diamagnetic loop')
-plt.plot(integrated_data_vacuum['t'], integrated_data_vacuum['difference'], label='difference') # this should be constant at 0
-
-plt.xlabel('time [ms]')
-plt.ylabel('flux [Wb]')
-plt.title(f'Integrated signal from diamagnetic loops during vacuum shot #{shot_no_vacuum}')
-plt.legend()
-plt.grid(True)
-
-
-plt.figure(figsize=(10, 6))
-plt.plot(integrated_data['t'], integrated_data['diamagnet1'], label='inner diamagnetic loop')
-plt.plot(integrated_data['t'], integrated_data['diamagnet2'], label='outer diamagnetic loop')
-plt.plot(integrated_data['t'], integrated_data['difference'], label='difference')
-
-plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
-plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
-
-plt.xlabel('time [ms]')
-plt.ylabel('flux [Wb]')
-plt.title(f'Integrated signal from diamagnetic loops during plasma discharge #{shot_no}')
-plt.legend()
-plt.grid(True)
-
-# plot only during plasma discharge
-mask = (raw_data['t'] >= t_start) & (raw_data['t'] <= t_end)
-
-plt.figure(figsize=(10, 6))
-plt.plot(integrated_data_vacuum['t'][mask], integrated_data_vacuum['diamagnet1'][mask], label='inner diamagnetic loop')
-plt.plot(integrated_data_vacuum['t'][mask], integrated_data_vacuum['diamagnet2'][mask], label='outer diamagnetic loop')
-plt.plot(integrated_data_vacuum['t'][mask], integrated_data_vacuum['difference'][mask], label='difference')
-plt.plot(integrated_data_vacuum['t'][mask], m * integrated_data_vacuum['diamagnet2'][mask], label='calibrated outer diamagnetic loop')
-
-plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
-plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
-
-plt.xlabel('time [ms]')
-plt.ylabel('flux [Wb]')
-plt.title(f'Integrated signal from diamagnetic loops during vacuum shot #{shot_no}')
-plt.legend()
-plt.grid(True)
-
-
-plt.figure(figsize=(10, 6))
-plt.plot(integrated_data['t'][mask], integrated_data['diamagnet1'][mask], label='inner diamagnetic loop')
-plt.plot(integrated_data['t'][mask], integrated_data['diamagnet2'][mask], label='outer diamagnetic loop')
-plt.plot(integrated_data['t'][mask], integrated_data['difference'][mask], label='difference')
-
-plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
-plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
-
-plt.xlabel('time [ms]')
-plt.ylabel('flux [Wb]')
-plt.title(f'Integrated signal from diamagnetic loops only during plasma discharge #{shot_no}')
-plt.legend()
-plt.grid(True)
-
-plt.show()
-
-
-
-# calibrated
-mask = (raw_data['t'] >= t_start) & (raw_data['t'] <= t_end)
-
-plt.figure(figsize=(10, 6))
-plt.plot(integrated_data['t'][mask], integrated_data['diamagnet1'][mask], label='inner diamagnetic loop')
-plt.plot(integrated_data['t'][mask], m * integrated_data['diamagnet2'][mask], label='outer diamagnetic loop')
-plt.plot(integrated_data['t'][mask], integrated_data['difference'][mask], label='difference')
-
-plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
-plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
-
-plt.xlabel('time [ms]')
-plt.ylabel('flux [Wb]')
-plt.title(f'Integrated and calibrated signal from diamagnetic loops only during plasma discharge #{shot_no}')
-plt.legend()
-plt.grid(True)
-
-plt.show()
-
-
-
-
+# plot integrated data
+plot_integrated_data(integrated_data, integrated_data_vacuum, calibration_const=m, save=0)
 
 # compute total magnetic flux
-magnetic_flux = pd.DataFrame({'t': integrated_data['t'], 'uncorrected total flux difference': - 1 / m / (A_2 / A_1 - 1) * integrated_data['difference'], 'vacuum flux difference': - integrated_data_vacuum['difference'], 'total flux difference': - 1 / m / (A_2 / A_1 - 1) * integrated_data['difference'] + integrated_data_vacuum['difference']})
+magnetic_flux = compute_magnetic_flux(integrated_data_vacuum, integrated_data, calibration_const=m, A_1=A_1, A_2=A_2)
 
+# plot magnetic flux difference
+plot_magnetic_flux_difference(magnetic_flux, save=0)
 
-
-
-# graph of total magnetic flux difference
-mask = (raw_data['t'] >= t_start) & (raw_data['t'] <= t_end)
-
-plt.figure(figsize=(10, 6))
-plt.plot(magnetic_flux['t'][mask], magnetic_flux['uncorrected total flux difference'][mask], label='total toroidal magnetic flux')
-plt.plot(magnetic_flux['t'][mask], magnetic_flux['total flux difference'][mask], label='corrected total toroidal magnetic flux')
-plt.plot(magnetic_flux['t'][mask], magnetic_flux['vacuum flux difference'][mask], label='vacuum magnetic flux difference')
-
-plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
-plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
-
-plt.xlabel('time [ms]')
-plt.ylabel('toroidal magnetic flux [Wb]')
-plt.title(f'Toroidal magnetic flux during plasma discharge #{shot_no}')
-plt.legend()
-plt.grid(True)
-
-plt.show()
-
-
-
-# compute paramagnetic effect
-I_p = pd.DataFrame({'t': I_all['t'], 'Ip': I_all['rogowski2']}) # TODO implement I_p computation from inner Rogowski coil
-
-interpolated_Bt = np.interp(magnetic_flux['t'], Bt['t'], Bt['Bt']) # interpolate Bt data to match sampling time of diamagnetic loops 
-B_0 = Bt.copy()
-B_0['Bt'] = interpolated_Bt # TODO B_0 should be on axis (Is it right now?)
-
-magnetic_flux['paramagnetic flux'] = (mu_0 * I_p['Ip'])**2 / (8 * np.pi * B_0['Bt'])
-
-# compute diamagnetic flux
-magnetic_flux['diamagnetic flux'] = magnetic_flux['total flux difference'] - magnetic_flux['paramagnetic flux']
-
-
+# compute paramagnetic and diamagnetic effects
+magnetic_flux = compute_magnetic_flux_effects(magnetic_flux, I_all, Bt, mu_0)
 
 # plot total toroidal magnetic flux, paramagnetic and diamagnetic toroidal magnetic flux
-plt.figure(figsize=(10, 6))
-plt.plot(magnetic_flux['t'], magnetic_flux['total flux difference'], label='total toroidal magnetic flux')
-plt.plot(magnetic_flux['t'], magnetic_flux['paramagnetic flux'], label='paramagnetic effect contribution')
-plt.plot(magnetic_flux['t'], magnetic_flux['diamagnetic flux'], label='diamagnetic effect contribution')
+plot_magnetic_flux_effects(shot_no, magnetic_flux, save=0)
 
-plt.axvline(x=t_start, color='black', linestyle='--', linewidth=1)
-plt.axvline(x=t_end, color='black', linestyle='--', linewidth=1)
 
-plt.xlabel('time [ms]')
-plt.ylabel('toroidal magnetic flux [Wb]')
-plt.title(f'Change in toroidal magnetic flux during plasma discharge #{shot_no}')
-plt.legend()
-plt.grid(True)
 
-plt.show()
 
 
 

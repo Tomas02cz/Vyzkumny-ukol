@@ -165,7 +165,9 @@ def plot_all_shots(shots_list, shot_type_name, save, show):
     plt.grid(True)
     plt.legend()
     if save == 1:
-        plt.savefig(f'results/{shot_type_name}_shots_between#{shots_list}_InnerRogowskiCoil_IntegratedSignal.png')
+        shot_numbers = [str(shot[0]) for shot in shots_list]  # takes shot numbers
+        shot_numbers_str = "_".join(shot_numbers)
+        plt.savefig(f"results/{shot_type_name}_shots_between#{shot_numbers_str}_InnerRogowskiCoil_IntegratedSignal.png")
     if show == 1:
         plt.show()
 
