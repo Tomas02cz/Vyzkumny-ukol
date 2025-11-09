@@ -121,6 +121,17 @@ def get_Ip_selected_data(shot_no: int, t_start: float = None, t_end: float = Non
     # cuts data
     return select_time_interval(raw_data, t_start, t_end)
 
+def get_Ip_data(shot_no: int) -> pd.DataFrame:
+    # data path
+    content = requests.get(URL_IP.format(shot_no=shot_no)).content
+    # reads data
+    raw_data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep = ',', names = ['t', 'Ip'])
+    # conversion to SI base units
+    raw_data['t'] = raw_data['t']*1e-3
+    raw_data['Ip'] = raw_data['Ip']*1e3
+    
+    return raw_data
+
 # loads data from camera radial position
 def get_R_data(shot_no: int) -> pd.DataFrame:
     # data path
@@ -170,25 +181,74 @@ def get_U_loop_data(shot_no: int) -> pd.DataFrame:
     # reads data
     raw_data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'U_loop'])
     
+    # conversion to SI base units
+    raw_data['t'] = raw_data['t']*1e-3
+    
     return raw_data
 
-# loads data from mirnov coils and saves them as csv file localy
-def get_mirnov_data(shot_no: int) -> pd.DataFrame:
+# loads data from MHD ring
+def get_MHD_ring_data(shot_no: int) -> pd.DataFrame:
     # data path and reads data
     if shot_no < 47680:
+        # Mirnov coils
         content = requests.get(URL_MIRNOV1.format(shot_no=shot_no)).content
-        raw_data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep = '\t', decimal = ',')
+        pol_mirnov = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep = '\t', decimal = ',')
         
-        no_of_diagnostics = raw_data.shape[1] - 1
+        no_of_diagnostics = pol_mirnov.shape[1] - 1
         print(no_of_diagnostics)
-        raw_data.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16']
+        pol_mirnov.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16']
+        
+        # diamagnetic loops
+        content1 = requests.get(URL_DIAMAGNET_OLD_INNER.format(shot_no=shot_no)).content
+        raw_data_inner_diamagnet = pd.read_csv(io.StringIO(content1.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'diamagnet'])
+        
+        content2 = requests.get(URL_DIAMAGNET_OLD_OUTER.format(shot_no=shot_no)).content
+        raw_data_outer_diamagnet = pd.read_csv(io.StringIO(content2.decode('iso-8859-1')), sep=',', decimal='.', names = ['t', 'diamagnet'])
+        
+        # Rogowski coils
+        content3 = requests.get(URL_ROGOWSKI_OLD_INNER.format(shot_no=shot_no)).content
+        raw_data_inner_RogCoil = pd.read_csv(io.StringIO(content3.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'rogowski'])
+        
+        content4 = requests.get(URL_ROGOWSKI_OUTER.format(shot_no=shot_no)).content
+        raw_data_outer_RogCoil = pd.read_csv(io.StringIO(content4.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'rogowski'])
+        
+        # interpolate data to match sampling time of Mirnov coils
+        interpolated_inner_diamagnet = np.interp(pol_mirnov['t'], raw_data_inner_diamagnet['t'], raw_data_inner_diamagnet['diamagnet'])
+        interpolated_outer_diamagnet = np.interp(pol_mirnov['t'], raw_data_outer_diamagnet['t'], raw_data_outer_diamagnet['diamagnet'])
+        interpolated_inner_RogCoil = np.interp(pol_mirnov['t'], raw_data_inner_RogCoil['t'], raw_data_inner_RogCoil['rogowski'])
+        interpolated_outer_RogCoil = np.interp(pol_mirnov['t'], raw_data_outer_RogCoil['t'], raw_data_outer_RogCoil['rogowski'])
+        
+        # make pandas.DataFrame of both signals
+        raw_data = pd.DataFrame({'t': pol_mirnov['t'], **{f'f{i}': pol_mirnov[f'f{i}'] for i in range(1, 17)}, 'diamagnet1': interpolated_inner_diamagnet, 'diamagnet2': interpolated_outer_diamagnet, 'rogowski1': interpolated_inner_RogCoil, 'rogowski2': interpolated_outer_RogCoil})
+    
+    elif (shot_no >= 47680) and (shot_no <= 50260):
+        content = requests.get(URL_MIRNOV2.format(shot_no=shot_no)).content
+        data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep=',', decimal='.')
+        data.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'diamagnet1', 'diamagnet2', 'rogowski', 'tor1', 'tor2']
+
+        content2 = requests.get(URL_ROGOWSKI_OUTER.format(shot_no=shot_no)).content
+        raw_data_outer_RogCoil = pd.read_csv(io.StringIO(content2.decode('iso-8859-1')), sep=',', decimal='.', names = ['t', 'rogowski'])
+
+        # interpolate data to match sampling time of Mirnov coils        
+        interpolated_outer_RogCoil = np.interp(data['t'], raw_data_outer_RogCoil['t'], raw_data_outer_RogCoil['rogowski'])
+
+        # make pandas.DataFrame   
+        raw_data = pd.DataFrame({'t': data['t'], **{f'f{i}': data[f'f{i}'] for i in range(1, 17)}, **{f'diamagnet{i}': data[f'diamagnet{i}'] for i in range(1,3)}, 'rogowski1': data['rogowski'], 'rogowski2': interpolated_outer_RogCoil, **{f'tor{i}': data[f'tor{i}'] for i in range(1, 3)}})
     else:
         content = requests.get(URL_MIRNOV2.format(shot_no=shot_no)).content
-        raw_data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep=',', decimal='.')
+        data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep=',', decimal='.')
+        data.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'lim1', 'lim2', 'lim3', 'lim4', 'none1', 'none2', 'none3', 'none4', 'U_loop', 'rogowski', 'tor1', 'tor2', 'diamagnet1', 'diamagnet2']
         
-        raw_data = raw_data.iloc[:, :17]
-        raw_data.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16']
-        
+        content2 = requests.get(URL_ROGOWSKI_OUTER.format(shot_no=shot_no)).content
+        raw_data_outer_RogCoil = pd.read_csv(io.StringIO(content2.decode('iso-8859-1')), sep=',', decimal='.', names = ['t', 'rogowski'])
+    
+        # interpolate data to match sampling time of Mirnov coils        
+        interpolated_outer_RogCoil = np.interp(data['t'], raw_data_outer_RogCoil['t'], raw_data_outer_RogCoil['rogowski'])
+    
+        # make pandas.DataFrame   
+        raw_data = pd.DataFrame({'t': data['t'], **{f'f{i}': data[f'f{i}'] for i in range(1, 17)}, **{f'lim{i}': data[f'lim{i}'] for i in range(1,5)}, **{f'diamagnet{i}': data[f'diamagnet{i}'] for i in range(1,3)}, 'rogowski1': data['rogowski'], 'rogowski2': interpolated_outer_RogCoil, **{f'tor{i}': data[f'tor{i}'] for i in range(1, 3)}, 'noise': data['none1'], 'U_loop': data['U_loop']})
+ 
+
     # some coils have flipeed polarity
     if shot_no < 46688:  
         raw_data['f10'] *= -1
@@ -202,63 +262,104 @@ def get_mirnov_data(shot_no: int) -> pd.DataFrame:
         raw_data['f13'] *= -1
     
     raw_data = raw_data.apply(pd.to_numeric, errors='coerce').fillna(0.0)
+    
+    return raw_data
+
+# loads data from mirnov coils and saves them as csv file localy
+def get_mirnov_data(shot_no: int) -> pd.DataFrame:
+    data = get_MHD_ring_data(shot_no)
+    raw_data = pd.DataFrame({'t': data['t'], **{f'f{i}': data[f'f{i}'] for i in range(1,17)}})
+    # # data path and reads data
+    # if shot_no < 47680:
+    #     content = requests.get(URL_MIRNOV1.format(shot_no=shot_no)).content
+    #     raw_data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep = '\t', decimal = ',')
+        
+    #     no_of_diagnostics = raw_data.shape[1] - 1
+    #     print(no_of_diagnostics)
+    #     raw_data.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16']
+    # else:
+    #     content = requests.get(URL_MIRNOV2.format(shot_no=shot_no)).content
+    #     raw_data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep=',', decimal='.')
+        
+    #     raw_data = raw_data.iloc[:, :17]
+    #     raw_data.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16']    
+        
+    # # some coils have flipeed polarity
+    # if shot_no < 46688:  
+    #     raw_data['f10'] *= -1
+    #     raw_data['f11'] *= -1
+    #     raw_data['f12'] *= -1
+    #     raw_data['f14'] *= -1
+    #     raw_data['f16'] *= -1    
+    # else:
+    #     raw_data['f1'] *= -1
+    #     raw_data['f9'] *= -1
+    #     raw_data['f13'] *= -1
+    
+    # raw_data = raw_data.apply(pd.to_numeric, errors='coerce').fillna(0.0)
 
     return raw_data
 
 # loads data from diamagnetic coils and saves them as csv file localy
 def get_diamagnet_data(shot_no: int) -> pd.DataFrame:
-    # data path and reads data
-    if shot_no < 47680:
-        content1 = requests.get(URL_DIAMAGNET_OLD_INNER.format(shot_no=shot_no)).content
-        raw_data_inner_diamagnet = pd.read_csv(io.StringIO(content1.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'diamagnet'])
-        
-        content2 = requests.get(URL_DIAMAGNET_OLD_OUTER.format(shot_no=shot_no)).content
-        raw_data_outer_diamagnet = pd.read_csv(io.StringIO(content2.decode('iso-8859-1')), sep=',', decimal='.', names = ['t', 'diamagnet'])
+    data = get_MHD_ring_data(shot_no)
+    raw_data = pd.DataFrame({'t': data['t'], **{f'diamagnet{i}': data[f'diamagnet{i}'] for i in range(1,3)}})
+    # # data path and reads data
     
-        # interpolate data from outer Rogowski coil to match sampling time of inner Rogowski coil 
-        interpolated_outer_diamagnet = np.interp(raw_data_inner_diamagnet['t'], raw_data_outer_diamagnet['t'], raw_data_outer_diamagnet['diamagnet'])
+    # if shot_no < 47680:
+    #     content1 = requests.get(URL_DIAMAGNET_OLD_INNER.format(shot_no=shot_no)).content
+    #     raw_data_inner_diamagnet = pd.read_csv(io.StringIO(content1.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'diamagnet'])
         
-        # make pandas.DataFrame of both signals
-        raw_data = pd.DataFrame({'t': raw_data_inner_diamagnet['t'], 'diamagnet1': raw_data_inner_diamagnet['diamagnet'], 'diamagnet2': interpolated_outer_diamagnet})
+    #     content2 = requests.get(URL_DIAMAGNET_OLD_OUTER.format(shot_no=shot_no)).content
+    #     raw_data_outer_diamagnet = pd.read_csv(io.StringIO(content2.decode('iso-8859-1')), sep=',', decimal='.', names = ['t', 'diamagnet'])
+    
+    #     # interpolate data from outer Rogowski coil to match sampling time of inner Rogowski coil 
+    #     interpolated_outer_diamagnet = np.interp(raw_data_inner_diamagnet['t'], raw_data_outer_diamagnet['t'], raw_data_outer_diamagnet['diamagnet'])
         
-    else:
-        content = requests.get(URL_MIRNOV2.format(shot_no=shot_no)).content
-        raw_data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep=',', decimal='.')
-        raw_data.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'diamagnet1', 'diamagnet2', 'rogowski']
+    #     # make pandas.DataFrame of both signals
+    #     raw_data = pd.DataFrame({'t': raw_data_inner_diamagnet['t'], 'diamagnet1': raw_data_inner_diamagnet['diamagnet'], 'diamagnet2': interpolated_outer_diamagnet})
+        
+    # else:
+    #     content = requests.get(URL_MIRNOV2.format(shot_no=shot_no)).content
+    #     raw_data = pd.read_csv(io.StringIO(content.decode('iso-8859-1')), sep=',', decimal='.')
+    #     raw_data.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'diamagnet1', 'diamagnet2', 'rogowski', 'tor1', 'tor2']
     
-        # delete data from Mirnov coils and Rogowski coil
-        raw_data = raw_data.drop(columns=['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'rogowski'])
+    #     # delete data from Mirnov coils and Rogowski coil
+    #     raw_data = raw_data.drop(columns=['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'rogowski', 'tor1', 'tor2'])
     
-    raw_data = raw_data.apply(pd.to_numeric, errors='coerce').fillna(0.0)
+    # raw_data = raw_data.apply(pd.to_numeric, errors='coerce').fillna(0.0)
 
     return raw_data
 
 # loads data from Rogowski coil and saves them as csv file localy
 def get_rogowski_data(shot_no: int) -> pd.DataFrame:
-    # data path and reads data
-    if shot_no < 47680:
-        content1 = requests.get(URL_ROGOWSKI_OLD_INNER.format(shot_no=shot_no)).content
-        raw_data_inner_RogCoil = pd.read_csv(io.StringIO(content1.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'rogowski'])
-        
-        content2 = requests.get(URL_ROGOWSKI_OUTER.format(shot_no=shot_no)).content
-        raw_data_outer_RogCoil = pd.read_csv(io.StringIO(content2.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'rogowski'])
-    else:
-        content1 = requests.get(URL_MIRNOV2.format(shot_no=shot_no)).content
-        raw_data_inner_RogCoil = pd.read_csv(io.StringIO(content1.decode('iso-8859-1')), sep = ',', decimal = '.')
-        raw_data_inner_RogCoil.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'diamagnet1', 'diamagnet2', 'rogowski']
+    data = get_MHD_ring_data(shot_no)
+    raw_data = pd.DataFrame({'t': data['t'], **{f'rogowski{i}': data[f'rogowski{i}'] for i in range(1,3)}})
 
-        content2 = requests.get(URL_ROGOWSKI_OUTER.format(shot_no=shot_no)).content
-        raw_data_outer_RogCoil = pd.read_csv(io.StringIO(content2.decode('iso-8859-1')), sep=',', decimal='.', names = ['t', 'rogowski'])
+    # # data path and reads data
+    # if shot_no < 47680:
+    #     content1 = requests.get(URL_ROGOWSKI_OLD_INNER.format(shot_no=shot_no)).content
+    #     raw_data_inner_RogCoil = pd.read_csv(io.StringIO(content1.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'rogowski'])
+        
+    #     content2 = requests.get(URL_ROGOWSKI_OUTER.format(shot_no=shot_no)).content
+    #     raw_data_outer_RogCoil = pd.read_csv(io.StringIO(content2.decode('iso-8859-1')), sep = ',', decimal = '.', names = ['t', 'rogowski'])
+    # else:
+    #     content1 = requests.get(URL_MIRNOV2.format(shot_no=shot_no)).content
+    #     raw_data_inner_RogCoil = pd.read_csv(io.StringIO(content1.decode('iso-8859-1')), sep = ',', decimal = '.')
+    #     raw_data_inner_RogCoil.columns = ['t', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'diamagnet1', 'diamagnet2', 'rogowski', 'tor1', 'tor2']
+
+    #     content2 = requests.get(URL_ROGOWSKI_OUTER.format(shot_no=shot_no)).content
+    #     raw_data_outer_RogCoil = pd.read_csv(io.StringIO(content2.decode('iso-8859-1')), sep=',', decimal='.', names = ['t', 'rogowski'])
     
-        # delete data from Mirnov coils and diamagnetic loops
-        raw_data_inner_RogCoil = raw_data_inner_RogCoil.drop(columns=['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'diamagnet1', 'diamagnet2'])
+    #     # delete data from Mirnov coils and diamagnetic loops
+    #     raw_data_inner_RogCoil = raw_data_inner_RogCoil.drop(columns=['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'diamagnet1', 'diamagnet2', 'tor1', 'tor2'])
     
-    # interpolate data from outer Rogowski coil to match sampling time of inner Rogowski coil 
-    interpolated_rogowski = np.interp(raw_data_inner_RogCoil['t'], raw_data_outer_RogCoil['t'], raw_data_outer_RogCoil['rogowski'])
+    # # interpolate data from outer Rogowski coil to match sampling time of inner Rogowski coil 
+    # interpolated_rogowski = np.interp(raw_data_inner_RogCoil['t'], raw_data_outer_RogCoil['t'], raw_data_outer_RogCoil['rogowski'])
     
-    # make pandas.DataFrame of both signals
-    raw_data = pd.DataFrame({'t': raw_data_inner_RogCoil['t'], 'rogowski1': raw_data_inner_RogCoil['rogowski'], 'rogowski2': interpolated_rogowski})
-    raw_data = raw_data.apply(pd.to_numeric, errors='coerce').fillna(0.0)
+    # # make pandas.DataFrame of both signals
+    # raw_data = pd.DataFrame({'t': raw_data_inner_RogCoil['t'], 'rogowski1': raw_data_inner_RogCoil['rogowski'], 'rogowski2': interpolated_rogowski})
+    # raw_data = raw_data.apply(pd.to_numeric, errors='coerce').fillna(0.0)
     
     return raw_data
 

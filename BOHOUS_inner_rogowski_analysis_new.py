@@ -9,6 +9,7 @@ from scipy.fft import next_fast_len
 import math
 import pandas as pd
 import scipy as spi
+from numpy.lib.npyio import DataSource
 
 
 from functions import get_plasma_time_parameters, get_mirnov_data, get_diamagnet_data, get_rogowski_data
@@ -80,8 +81,8 @@ def remove_offset(shot_no, raw_series):
     return pd.Series(y - trend, index=t, name=raw_series.name)
 
 ''' MAIN '''
-vac_shot_no=49092
-shot_no=49093
+vac_shot_no=50247
+shot_no=50301
 
 
 
@@ -165,7 +166,7 @@ y = Current_pl.iloc[np.r_[2000:duration_index[0]-500, duration_index[1]+1000:len
 x_clean = x[np.isfinite(x) & np.isfinite(y)] # To remove infs
 y_clean = y[np.isfinite(x) & np.isfinite(y)]
 t_data_points= x_clean
-I_data_points=y_clean*1000 #To convert Current from KA to A. 
+I_data_points=y_clean*1000 #To convert Current from kA to A. 
 
 
 # DOING THE FIT
@@ -286,8 +287,16 @@ I_only_Bfield= I_only_Bfield.to_numpy()
 Bt_only_Bfield=Bt_only_Bfield.to_numpy()
 
 U_loop_interp= pd.Series(np.interp(common_time,Ich.index/1000, U_loop), index= common_time)
-I_only_Bfield_interp=pd.Series(np.interp(common_time,Ich.index/1000, I_only_Bfield*1000), index= common_time)
-Bt_only_interp=pd.Series(np.interp(common_time,Ich.index/1000, Bt_only_Bfield), index= common_time)
+
+min_len = min(len(Ich.index), len(I_only_Bfield))
+time_axis = Ich.index[:min_len] / 1000
+I_only_Bfield_cut = I_only_Bfield[:min_len]
+I_only_Bfield_interp = pd.Series(np.interp(common_time, time_axis, I_only_Bfield_cut*1000), index=common_time)
+
+min_len_bt = min(len(Ich.index), len(Bt_only_Bfield))
+time_axis_bt = Ich.index[:min_len_bt] / 1000
+Bt_only_Bfield_cut = Bt_only_Bfield[:min_len_bt]
+Bt_only_interp = pd.Series(np.interp(common_time, time_axis_bt, Bt_only_Bfield_cut), index=common_time)
 
 I_chamber_correct=Ich_new - I_only_Bfield_interp
 
@@ -346,7 +355,7 @@ plt.show()
 #The function below process the data from both the TF Measuring Coils as well as the inner Diamagnetic coils
 def plot_magnetic_fields(shot_no, vac_shot_no):
     # PATHS
-    ds = np.DataSource('/tmp')  # temporary storage for downloaded files
+    ds = DataSource('/tmp')  # temporary storage for downloaded files
 
     address_new_diag = 'http://golem.fjfi.cvut.cz/shots/{shot_no}/Diagnostics/MHDring-TM/{name}'# new coils
     address_basic = 'http://golem.fjfi.cvut.cz/shots/{shot_no}/Diagnostics/BasicDiagnostics/Results/{name}'
